@@ -38,7 +38,7 @@ class DistanceSensor:
         self.sense_dist = -1
 
     def raycast(self, loc, theta, room):
-        #print("**********")
+        # print("**********")
         pt1x = self.pt[0] + cos(self.theta) * self.min_dist
         pt1y = self.pt[1] + sin(self.theta) * self.min_dist
         pt2x = self.pt[0] + cos(self.theta) * self.max_dist
@@ -67,11 +67,11 @@ class DistanceSensor:
             pt = (contact_pts.x, contact_pts.y)
             dist = euc(pt, center)
 
-            #print("DIST")
-            #print(pt)
-            #print(center)
+            # print("DIST")
+            # print(pt)
+            # print(center)
 
-            #print(dist)
+            # print(dist)
 
             if self.min_dist < dist < self.max_dist:
                 self.sense_dist = dist
@@ -81,8 +81,8 @@ class DistanceSensor:
             if len(contact_pts) == 0:
                 self.sense_dist = -1
 
-        #print(contact_pts)
-        #print(self.sense_dist)
+        # print(contact_pts)
+        # print(self.sense_dist)
 
     def render(self, ctx: cairo.Context):
         pt1x = self.pt[0] + cos(self.theta) * self.min_dist
@@ -164,7 +164,8 @@ class Roomba:
             # print(self.loc)
 
     def observe(self, room: Room):
-        obs = list()
+        obs = [self.wheel_vel[0], self.wheel_vel[1]]
+
         for sensor in self.sensors:
             sensor.raycast(self.loc, self.theta, room)
             obs.append(sensor.sense_dist)

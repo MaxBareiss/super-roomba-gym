@@ -19,6 +19,7 @@ from gym import spaces
 import numpy as np
 from .room import Room
 from .roomba import Roomba
+import cairo
 
 
 class SuperRoombaEnv(gym.Env):
@@ -28,17 +29,44 @@ class SuperRoombaEnv(gym.Env):
         self.seed = None
         self.bot = Roomba()
         self.dt = 0.1
-        self.action_space = spaces.Box(low=np.array([-2, -2]), high=np.array([2, 2]))  # m/s^2
+        self.action_space = spaces.Box(low=np.array([-4, -4], dtype=np.float32),
+                                       high=np.array([4, 4], dtype=np.float32))  # m/s^2
+        self.observation_space = spaces.Box(low=np.array([-0.4, -0.4, -1, -1], dtype=np.float32),
+                                            high=np.array([0.4, 0.4, 0.3, 0.3], dtype=np.float32))
+        self.time = 0
 
     def step(self, action: np.ndarray):
         action[0] = min(4, max(action[0], -4))
         action[1] = min(4, max(action[1], -4))
-        self.bot.step(action, self.room, self.dt)
+        obs = self.bot.step(action, self.room, self.dt)
+
+        reward = self.room.get_reward(self.bot.loc, self.bot.r)
+
+        self.time += self.dt
+
+        done = self.time > 600
+
+        return obs, reward, done, {}
 
     def reset(self):
         self.room.generate(seed=self.seed)
         self.bot.reset()
+        self.time = 0
 
     def seed(self, seed=None):
         if seed is not None:
             self.seed = None
+
+    def render(self):
+        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 1000, 1000)
+        ctx = cairo.Context(surface)
+        ctx.set_source_rgba(0, 0, 0, 1)
+        ctx.rectangle(0, 0, 1000, 1000)
+        ctx.fill()
+        ctx.scale(1000 / 5, 1000 / 5)
+        ctx.translate(1, 1)
+
+        self.room.render(ctx)
+        self.bot.render(ctx)
+
+        surface.write_to_png("pics/{:02d}.png".format(int(self.time / self.dt)))
