@@ -14,12 +14,99 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from super_roomba.envs.room import Room, euc
+from super_roomba.envs.room import Room, euc, rotate
 import shapely
 import shapely.geometry
 import shapely.ops
-from math import sin, cos, pi
+from math import sin, cos, pi, sqrt
 import cairo
+import numpy as np
+
+
+class DistanceSensor:
+    pt = (0, 0)
+    theta = 0
+    min_dist = 0
+    max_dist = 1000
+    sense_dist = None
+
+    def __init__(self, pt, theta, min_dist, max_dist):
+        self.pt = pt
+        self.theta = theta
+        self.min_dist = min_dist
+        self.max_dist = max_dist
+        self.sense_dist = -1
+
+    def raycast(self, loc, theta, room):
+        #print("**********")
+        pt1x = self.pt[0] + cos(self.theta) * self.min_dist
+        pt1y = self.pt[1] + sin(self.theta) * self.min_dist
+        pt2x = self.pt[0] + cos(self.theta) * self.max_dist
+        pt2y = self.pt[0] + sin(self.theta) * self.max_dist
+
+        pt1 = (pt1x, pt1y)
+        pt2 = (pt2x, pt2y)
+
+        pt1 = rotate(pt1, theta)
+        pt1 = (pt1[0] + loc[0], pt1[1] + loc[1])
+
+        pt2 = rotate(pt2, theta)
+        pt2 = (pt2[0] + loc[0], pt2[1] + loc[1])
+
+        line = shapely.geometry.LineString([pt1, pt2])
+
+        outline = shapely.geometry.LinearRing(room.corners)
+
+        contact_pts = outline.intersection(line)
+
+        if isinstance(contact_pts, shapely.geometry.Point):
+
+            center = rotate(self.pt, theta)
+            center = (center[0] + loc[0], center[1] + loc[1])
+
+            pt = (contact_pts.x, contact_pts.y)
+            dist = euc(pt, center)
+
+            #print("DIST")
+            #print(pt)
+            #print(center)
+
+            #print(dist)
+
+            if self.min_dist < dist < self.max_dist:
+                self.sense_dist = dist
+            else:
+                self.sense_dist = -1
+        elif isinstance(contact_pts, shapely.geometry.GeometryCollection):
+            if len(contact_pts) == 0:
+                self.sense_dist = -1
+
+        #print(contact_pts)
+        #print(self.sense_dist)
+
+    def render(self, ctx: cairo.Context):
+        pt1x = self.pt[0] + cos(self.theta) * self.min_dist
+        pt1y = self.pt[1] + sin(self.theta) * self.min_dist
+        pt2x = self.pt[0] + cos(self.theta) * self.max_dist
+        pt2y = self.pt[0] + sin(self.theta) * self.max_dist
+
+        ctx.set_line_width(0.0125)
+
+        if self.sense_dist < 0:
+            ctx.set_source_rgb(1, 0.5, 0.5)
+        else:
+            ctx.set_source_rgb(0.5, 1.0, 0.5)
+
+        ctx.move_to(pt1x, pt1y)
+        ctx.line_to(pt2x, pt2y)
+        ctx.stroke()
+
+        if self.sense_dist >= 0:
+            sensex = self.pt[0] + cos(self.theta) * self.sense_dist
+            sensey = self.pt[1] + sin(self.theta) * self.sense_dist
+
+            ctx.arc(sensex, sensey, 0.025, 0, 2 * pi)
+            ctx.stroke()
 
 
 class Roomba:
@@ -27,7 +114,10 @@ class Roomba:
         self.loc = None
         self.theta = None
         self.wheel_vel = None
+        self.sensors = list()
         self.r = 0.17
+        self.sensors = [DistanceSensor((0, 0), 40 / 180 * pi, 0.17, 0.3),
+                        DistanceSensor((0, 0), -40 / 180 * pi, 0.17, 0.3)]
         self.reset()
 
     def reset(self):
@@ -60,18 +150,26 @@ class Roomba:
             center = shapely.geometry.Point(self.loc)
             nearest_pt = shapely.ops.nearest_points(outline, center)
             nearest_dist = euc((center.x, center.y), (nearest_pt[0].x, nearest_pt[0].y))
-            #print("NEAREST DIST: ", nearest_dist)
+            # print("NEAREST DIST: ", nearest_dist)
             if nearest_dist < self.r:
                 delta = shapely.geometry.Point((nearest_pt[0].x - center.x, nearest_pt[0].y - center.y))
-                delta_len = euc((0,0),(delta.x, delta.y))
+                delta_len = euc((0, 0), (delta.x, delta.y))
                 delta = shapely.geometry.Point(delta.x / delta_len, delta.y / delta_len)
-                new_x = center.x - delta.x * (self.r - nearest_dist)
-                new_y = center.y - delta.y * (self.r - nearest_dist)
-                #print("NEW X: ", new_x)
+                new_x = center.x - delta.x * (self.r - nearest_dist + 0.0001)
+                new_y = center.y - delta.y * (self.r - nearest_dist + 0.0001)
+                # print("NEW X: ", new_x)
                 self.loc = (new_x, new_y)
             else:
                 break
-            #print(self.loc)
+            # print(self.loc)
+
+    def observe(self, room: Room):
+        obs = list()
+        for sensor in self.sensors:
+            sensor.raycast(self.loc, self.theta, room)
+            obs.append(sensor.sense_dist)
+        obs = np.array(obs)
+        return obs
 
     def step(self, wheel_acc, room: Room, dt):
         left_wheel_vel = max(-0.4, min(0.4, self.wheel_vel[0] + wheel_acc[0] * dt))  # 400 mm/s
@@ -80,6 +178,7 @@ class Roomba:
 
         self.move(dt)
         self.apply_physics(room)
+        return self.observe(room)
 
     def render(self, ctx: cairo.Context):
         ctx.save()
@@ -92,4 +191,8 @@ class Roomba:
         ctx.move_to(self.r - 0.10, 0)
         ctx.line_to(self.r, 0)
         ctx.stroke()
+
+        for sensor in self.sensors:
+            sensor.render(ctx)
+
         ctx.restore()

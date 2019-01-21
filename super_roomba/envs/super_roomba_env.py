@@ -18,6 +18,7 @@ import gym
 from gym import spaces
 import numpy as np
 from .room import Room
+from .roomba import Roomba
 
 
 class SuperRoombaEnv(gym.Env):
@@ -25,12 +26,18 @@ class SuperRoombaEnv(gym.Env):
         self.__version__ = "0.0.1"
         self.room = Room()
         self.seed = None
+        self.bot = Roomba()
+        self.dt = 0.1
+        self.action_space = spaces.Box(low=np.array([-2, -2]), high=np.array([2, 2]))  # m/s^2
 
-    def step(self, action):
-        pass
+    def step(self, action: np.ndarray):
+        action[0] = min(4, max(action[0], -4))
+        action[1] = min(4, max(action[1], -4))
+        self.bot.step(action, self.room, self.dt)
 
     def reset(self):
         self.room.generate(seed=self.seed)
+        self.bot.reset()
 
     def seed(self, seed=None):
         if seed is not None:
